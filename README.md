@@ -123,6 +123,14 @@ devices:
 Texts live in the `STRINGS` object at the top of `appliance-energy-card.js`. Pull requests with new languages are
 welcome.
 
+## More cards
+
+Other cards in the same style:
+
+- [Bin Day Card](https://github.com/AldebaranPrimo/bin-day-card): which bins to put out tonight and the next collection days.
+- [Battery Check Card](https://github.com/AldebaranPrimo/battery-check-card): finds every battery in your home and shows which ones to replace now.
+- [Tractive Pet Card](https://github.com/AldebaranPrimo/tractive-pet-card): your pet's activity goal, collar and history from the Tractive integration.
+
 ## Licence
 
 [MIT](LICENSE)
