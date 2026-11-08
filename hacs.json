@@ -1,0 +1,6 @@
+{
+  "name": "Appliance Energy Card",
+  "filename": "appliance-energy-card.js",
+  "render_readme": true,
+  "homeassistant": "2024.8.0"
+}
