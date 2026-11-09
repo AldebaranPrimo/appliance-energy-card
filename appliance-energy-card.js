@@ -5,7 +5,7 @@
  * Devices come from the "Individual devices" of the Home Assistant Energy dashboard, or from the card configuration.
  * https://github.com/AldebaranPrimo/appliance-energy-card — MIT licence.
  */
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 
 const STRINGS = {
   en: {
@@ -27,7 +27,7 @@ const STRINGS = {
     tableTitle: (n) => `Energy per device, last ${n} days`,
     tableSub: "kWh per day; the darker the box, the more energy.",
     total: "Total", tot: "tot.", noData: "no data",
-    footer: "In every tile: state, energy today and meter reading, power curve of the last 24 hours with its maximum, and a strip with the use in the last 24 hours.",
+    footer: (meter) => `In every tile: state, energy today${meter ? " and meter reading" : ""}, power curve of the last 24 hours with its maximum, and a strip with the use in the last 24 hours.`,
     and: "and", minutes: (m) => `${m} min`, hours: (h, m) => (m ? `${h} h ${m} min` : `${h} h`),
   },
   it: {
@@ -49,7 +49,7 @@ const STRINGS = {
     tableTitle: (n) => `Energia per dispositivo, ultimi ${n} giorni`,
     tableSub: "kWh al giorno; più scura la casella, più energia.",
     total: "Totale", tot: "tot.", noData: "nessun dato",
-    footer: "In ogni riquadro: stato, energia di oggi e lettura del contatore, curva della potenza nelle ultime 24 ore con il massimo, striscia dell'uso nelle 24 ore.",
+    footer: (meter) => `In ogni riquadro: stato, energia di oggi${meter ? " e lettura del contatore" : ""}, curva della potenza nelle ultime 24 ore con il massimo, striscia dell'uso nelle 24 ore.`,
     and: "e", minutes: (m) => `${m} min`, hours: (h, m) => (m ? `${h} h ${m} min` : `${h} h`),
   },
 };
@@ -72,6 +72,12 @@ const ICON_GUESSES = [
 ];
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const checkLanguage = (v) => {
+  if (v === undefined || v === null || v === "") return;
+  let ok = typeof v === "string";
+  try { ok = ok && Intl.getCanonicalLocales(v).length > 0; } catch (e) { ok = false; }
+  if (!ok) throw new Error("language must be a language code like en or it-IT");
+};
 const isNa = (st) => !st || UNAVAILABLE.includes(String(st.state).toLowerCase());
 const num = (st) => { if (isNa(st)) return null; const v = parseFloat(st.state); return Number.isFinite(v) ? v : null; };
 const finite = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -127,10 +133,20 @@ class ApplianceEnergyCard extends HTMLElement {
 
   setConfig(config) {
     if (config.devices !== undefined && !Array.isArray(config.devices)) throw new Error("devices must be a list");
-    for (const d of config.devices || []) if (!d.power && !d.energy) throw new Error("every device needs power or energy");
+    for (const d of config.devices || []) {
+      if (!d.power && !d.energy) throw new Error("every device needs power or energy");
+      for (const k of ["name", "power", "energy", "switch", "in_use", "phase", "meter"]) if (d[k] && typeof d[k] !== "string") throw new Error(`${k} must be text`);
+      if (d.threshold !== undefined && !Number.isFinite(d.threshold)) throw new Error("threshold must be a number");
+    }
     if (config.always_on !== undefined && !Array.isArray(config.always_on)) throw new Error("always_on must be a list of energy sensors or names");
     if (config.tap !== undefined && !["toggle", "details"].includes(config.tap)) throw new Error("tap must be toggle or details");
-    this._config = { days: 7, threshold: 10, show_table: true, show_tiles: true, show_banner: true, show_meter: true, house_levels: [800, 2000], tap: "toggle", always_on: [], ...config };
+    checkLanguage(config.language);
+    const merged = { days: 7, threshold: 10, show_table: true, show_tiles: true, show_banner: true, show_meter: true, house_levels: [800, 2000], tap: "toggle", always_on: [], ...config };
+    if (!Number.isInteger(merged.days) || merged.days < 1 || merged.days > 31) throw new Error("days must be a whole number from 1 to 31");
+    if (!Number.isFinite(merged.threshold)) throw new Error("threshold must be a number");
+    const lv = merged.house_levels;
+    if (!Array.isArray(lv) || lv.length !== 2 || !lv.every(Number.isFinite) || lv[0] >= lv[1]) throw new Error("house_levels must be two numbers, the first lower than the second");
+    this._config = merged;
     this._gen = (this._gen || 0) + 1;   // a discovery started with an older configuration is thrown away
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     this._sig = null;
@@ -151,7 +167,7 @@ class ApplianceEnergyCard extends HTMLElement {
   _update(force) {
     if (!this._config || !this._hass) return;
     if (!this._devices) {
-      if (!this._discovering) { this._discovering = true; this._discover().finally(() => { this._discovering = false; this._sig = null; this._update(true); }); }
+      if (!this._discovering) { this._discovering = true; const gen = this._gen; this._discover().catch(() => { if (gen === this._gen) this._devices = []; }).finally(() => { this._discovering = false; this._sig = null; this._update(true); }); }
       return;
     }
     const now = new Date();
@@ -334,7 +350,7 @@ class ApplianceEnergyCard extends HTMLElement {
       ${banner}
       ${c.show_tiles && devs.length ? `<div class="tiles">${rows.map(tile).join("")}</div>` : ""}
       ${c.show_table && devs.some((d) => d.energy) ? this._table() : ""}
-      ${c.show_tiles && devs.length ? `<div class="foot">${esc(s.footer)}${devs.some((d) => this._toggles(d)) ? " " + esc(s.tapHint) + "." : ""}</div>` : ""}
+      ${c.show_tiles && devs.length ? `<div class="foot">${esc(s.footer(c.show_meter !== false))}${devs.some((d) => this._toggles(d)) ? " " + esc(s.tapHint) + "." : ""}</div>` : ""}
     </ha-card>`;
     this.shadowRoot.querySelectorAll("[data-info]").forEach((el) => this._actions(el));
   }

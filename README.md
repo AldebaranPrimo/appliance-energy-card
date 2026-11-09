@@ -88,9 +88,9 @@ devices:
 | `tap` | `toggle` | `toggle`: a tap switches the plug on or off (never for `always_on` appliances); `details`: a tap only opens the details. |
 | `title` | *Appliances*, translated | Card title. |
 | `house_power` | none | Power sensor of the whole house, shown in the header (green, amber above 800 W, red above 2000 W). |
-| `house_levels` | `[800, 2000]` | Watts at which the house power turns amber and red. |
+| `house_levels` | `[800, 2000]` | Watts at which the house power turns amber and red: two numbers, the first lower than the second. |
 | `threshold` | `10` | Watts above which an appliance counts as in use, for appliances without their own `threshold` or `in_use`. |
-| `days` | `7` | Days in the table. |
+| `days` | `7` | Days in the table, a whole number from 1 to 31. |
 | `show_tiles` | `true` | Show the tiles. |
 | `show_table` | `true` | Show the table of the last days. |
 | `show_banner` | `true` | Show the title line and the banner on top. `false` leaves them out (handy for a table-only card). An empty `title` leaves out just the title. |
