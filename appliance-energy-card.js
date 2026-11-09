@@ -5,7 +5,7 @@
  * Devices come from the "Individual devices" of the Home Assistant Energy dashboard, or from the card configuration.
  * https://github.com/AldebaranPrimo/appliance-energy-card — MIT licence.
  */
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 const STRINGS = {
   en: {
@@ -16,8 +16,8 @@ const STRINGS = {
     check: (names) => `to check: ${names}`,
     noDevices: "No devices",
     noDevicesSub: "Add devices to the card, or individual devices to the Energy dashboard.",
-    state: { use: "In use", idle: "Idle", off: "Off", na: "Unavailable", on: "On", low: "No power" },
-    detail: { off: "plug off", na: "not responding", idle: (w) => `plug on · ${w}`, low: (w) => `almost zero (${w})` },
+    state: { use: "In use", idle: "Idle", off: "Off", na: "Unavailable", on: "On", low: "No power", unplugged: "Unplugged" },
+    detail: { off: "plug off", na: "not responding", unplugged: "no plug", idle: (w) => `plug on · ${w}`, low: (w) => `almost zero (${w})` },
     since: (t) => `for ${t}`,
     today: (v) => `today ${v}`,
     meter: (v) => `meter ${v}`,
@@ -38,8 +38,8 @@ const STRINGS = {
     check: (names) => `da controllare: ${names}`,
     noDevices: "Nessun dispositivo",
     noDevicesSub: "Aggiungi i dispositivi alla scheda, o i dispositivi singoli alla dashboard Energia.",
-    state: { use: "In funzione", idle: "A riposo", off: "Spenta", na: "Non risponde", on: "Acceso", low: "Senza consumo" },
-    detail: { off: "presa spenta", na: "non risponde", idle: (w) => `presa accesa · ${w}`, low: (w) => `quasi a zero (${w})` },
+    state: { use: "In funzione", idle: "A riposo", off: "Spenta", na: "Non risponde", on: "Acceso", low: "Senza consumo", unplugged: "Scollegato" },
+    detail: { off: "presa spenta", na: "non risponde", unplugged: "senza spina", idle: (w) => `presa accesa · ${w}`, low: (w) => `quasi a zero (${w})` },
     since: (t) => `da ${t}`,
     today: (v) => `oggi ${v}`,
     meter: (v) => `contatore ${v}`,
@@ -130,7 +130,7 @@ class ApplianceEnergyCard extends HTMLElement {
     for (const d of config.devices || []) if (!d.power && !d.energy) throw new Error("every device needs power or energy");
     if (config.always_on !== undefined && !Array.isArray(config.always_on)) throw new Error("always_on must be a list of energy sensors or names");
     if (config.tap !== undefined && !["toggle", "details"].includes(config.tap)) throw new Error("tap must be toggle or details");
-    this._config = { days: 7, threshold: 10, show_table: true, show_tiles: true, house_levels: [800, 2000], tap: "toggle", always_on: [], ...config };
+    this._config = { days: 7, threshold: 10, show_table: true, show_tiles: true, show_banner: true, show_meter: true, house_levels: [800, 2000], tap: "toggle", always_on: [], ...config };
     this._gen = (this._gen || 0) + 1;   // a discovery started with an older configuration is thrown away
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     this._sig = null;
@@ -155,7 +155,7 @@ class ApplianceEnergyCard extends HTMLElement {
       return;
     }
     const now = new Date();
-    const ids = [this._config.house_power, ...(this._devices || []).flatMap((d) => [d.power, d.energy, d.switch, d.in_use])].filter(Boolean);
+    const ids = [this._config.house_power, ...(this._devices || []).flatMap((d) => [d.power, d.energy, d.switch, d.in_use, d.phase, this._meterId(d)])].filter(Boolean);
     const sig = ids.map((id) => this._hass.states[id]?.last_updated).join("|") + "|" + Math.floor(now / 60000) + "|" + this._lang().locale;
     if (sig === this._sig && !force) return;
     this._sig = sig;
@@ -252,6 +252,8 @@ class ApplianceEnergyCard extends HTMLElement {
     const H = this._hass, c = this._config;
     const pw = H.states[d.power], sw = H.states[d.switch], use = H.states[d.in_use];
     const w = num(pw), thr = d.threshold ?? c.threshold;
+    // portable appliance (the plug is inside it): no plug, no reading, and that is normal
+    if (d.portable && ((d.power && isNa(pw)) || (d.switch && isNa(sw)))) return { kind: "unplugged", w };
     if ((d.power && isNa(pw)) || (d.switch && isNa(sw))) return { kind: "na", w };
     if (d.switch && sw.state === "off") return { kind: "off", w };
     // always on: an alarm only when it is really off (1 W or less, or its own threshold), not between compressor cycles
@@ -259,6 +261,16 @@ class ApplianceEnergyCard extends HTMLElement {
     if (use ? use.state === "on" : w !== null && w > thr) return { kind: "use", w, since: use ? new Date(use.last_changed).getTime() : this._usageStart(d) };
     return { kind: "idle", w };
   }
+
+  // running phase of a washing machine and the like: shown only when it is not at rest
+  _phase(d) {
+    const st = d.phase && this._hass.states[d.phase];
+    if (!st || isNa(st)) return "";
+    const idle = (d.phase_idle === undefined ? ["inattiva", "idle", "off", "unknown"] : [].concat(d.phase_idle)).map((x) => String(x).toLowerCase());
+    return idle.includes(String(st.state).toLowerCase()) ? "" : String(st.state);
+  }
+  // meter entity: `meter` if given ("" for none), otherwise the energy sensor
+  _meterId(d) { return this._config?.show_meter === false ? null : d.meter === undefined ? d.energy : d.meter || null; }
 
   // usage ranges in the last 24 hours: from the in-use sensor, otherwise from the power above the threshold
   _usage(d) {
@@ -282,33 +294,35 @@ class ApplianceEnergyCard extends HTMLElement {
     const problems = rows.filter((r) => r.x.kind === "low" || r.x.kind === "na");
     const houseText = c.house_power ? `${s.house} ${this._watts(house)}` : "";
 
-    let banner;
-    if (!devs.length) banner = this._banner(null, "mdi:power-plug-off-outline", s.noDevices, s.noDevicesSub);
-    else if (using.length) banner = this._banner(COLORS.amber, using[0].d.icon, s.running(list(using.map((r) => r.d.name))),
+    let banner = "";
+    if (!c.show_banner) banner = "";
+    else if (!devs.length) banner = this._banner(null, "mdi:power-plug-off-outline", s.noDevices, s.noDevicesSub);
+    else if (using.length) banner = this._banner(COLORS.amber, using[0].d.icon, s.running(list(using.map((r) => r.d.name + (this._phase(r.d) ? ` (${this._phase(r.d)})` : "")))),
       [using.map((r) => `${r.d.name} ${this._watts(r.x.w)}`).join(" · "), houseText, problems.length ? s.check(list(problems.map((r) => r.d.name))) : ""].filter(Boolean).join(" · "));
     else banner = this._banner(null, "mdi:power-plug-outline", s.nothing,
       [houseText, problems.length ? s.check(list(problems.map((r) => r.d.name))) : ""].filter(Boolean).join(" · ") || " ");
 
     const t1 = Date.now(), t0 = t1 - 86400000;
     const tile = ({ d, x }) => {
-      const map = { use: [COLORS.amber, "full"], low: [COLORS.amber, "full"], na: [COLORS.grey, ""], off: [COLORS.grey, "dim"], idle: [COLORS.green, "dim"], on: [COLORS.green, "dim"] };
+      const map = { use: [COLORS.amber, "full"], low: [COLORS.amber, "full"], na: [COLORS.red, ""], unplugged: [COLORS.grey, "dim"], off: [COLORS.grey, "dim"], idle: [COLORS.green, "dim"], on: [COLORS.green, "dim"] };
       const [[col, txt], cls] = map[x.kind];
       const idle = d.switch ? s.detail.idle(this._watts(x.w)) : d.power ? this._watts(x.w) : "";
-      const detail = { use: this._watts(x.w), on: this._watts(x.w), off: s.detail.off, na: s.detail.na, idle, low: s.detail.low(this._watts(x.w)) }[x.kind];
+      const detail = { use: this._watts(x.w), on: this._watts(x.w), off: s.detail.off, na: s.detail.na, unplugged: s.detail.unplugged, idle, low: s.detail.low(this._watts(x.w)) }[x.kind];
+      const phase = this._phase(d);
       const since = x.since ? ` · ${s.since(this._duration(t1 - x.since))}` : "";
       const today = d.energy ? this._today[d.energy] : undefined;
-      const meter = d.energy ? num(H.states[d.energy]) : null;
+      const meterId = this._meterId(d), meter = meterId ? num(H.states[meterId]) : null;
       const pts = points(this._hist?.[d.power]).filter((p) => Number.isFinite(p.v));
       const curve = this._hist ? buckets(pts, t0, t1, 96) : [];
       const inWindow = pts.filter((p) => p.t >= t0).map((p) => p.v).concat(curve.map((p) => p.v));
       const max = inWindow.length ? Math.max(...inWindow) : null;
       const use = this._usage(d).map(([a, b]) => `<i style="left:${(((a - t0) / 86400000) * 100).toFixed(2)}%;width:${Math.max(0.3, ((b - a) / 86400000) * 100).toFixed(2)}%"></i>`).join("");
-      const energyLine = [today !== undefined && today !== null ? s.today(this._kwh(today)) : "", meter !== null ? s.meter(this._kwh(meter)) : ""].filter(Boolean).join(" · ");
-      const toggles = this._toggles(d);
-      return `<div class="tile ${cls}" style="--c:${col};--t:${txt}" data-info="${esc(d.power || d.energy || d.switch)}" ${toggles ? `data-toggle="${esc(d.switch)}"` : ""} title="${esc(toggles ? s.tapHint : "")}">
+      const energyLine = [today !== undefined && today !== null ? s.today(this._kwh(today)) : "", meter !== null ? s.meter(this._kwh(meter)) : "", d.note || ""].filter(Boolean).join(" · ");
+      const toggles = this._toggles(d) && x.kind !== "unplugged";
+      return `<div class="tile ${cls}" style="--c:${col};--t:${txt}" data-info="${esc(d.switch || d.power || d.energy)}" ${toggles ? `data-toggle="${esc(d.switch)}"` : ""} title="${esc(toggles ? s.tapHint : "")}">
         <div class="row"><ha-icon icon="${esc(d.icon)}"></ha-icon><span class="name">${esc(d.name)}</span></div>
         <div class="value">${esc(s.state[x.kind])}</div>
-        <div class="det">${esc(detail + since)}</div>
+        <div class="det">${esc(detail + since + (phase ? ` · ${phase}` : ""))}</div>
         ${energyLine ? `<div class="det">${esc(energyLine)}</div>` : ""}
         ${d.power ? `${sparkSvg(curve, t0, t1)}<div class="det">${esc(s.max24(this._watts(max)))}</div>` : ""}
         ${d.power || d.in_use ? `<div class="use" title="${esc(s.usageTitle)}">${use}</div>` : ""}
@@ -316,11 +330,11 @@ class ApplianceEnergyCard extends HTMLElement {
     };
 
     this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card lang="${esc(this._lang().locale)}">
-      <div class="head"><h2>${esc(c.title ?? s.title)}</h2>${houseText ? `<span class="note" style="color:${houseColor[0]}">${esc(houseText)}</span>` : ""}</div>
+      ${c.show_banner && ((c.title ?? s.title) || houseText) ? `<div class="head">${(c.title ?? s.title) ? `<h2>${esc(c.title ?? s.title)}</h2>` : ""}${houseText ? `<span class="note" style="color:${houseColor[0]}">${esc(houseText)}</span>` : ""}</div>` : ""}
       ${banner}
       ${c.show_tiles && devs.length ? `<div class="tiles">${rows.map(tile).join("")}</div>` : ""}
       ${c.show_table && devs.some((d) => d.energy) ? this._table() : ""}
-      ${devs.length ? `<div class="foot">${esc(s.footer)}${devs.some((d) => this._toggles(d)) ? " " + esc(s.tapHint) + "." : ""}</div>` : ""}
+      ${c.show_tiles && devs.length ? `<div class="foot">${esc(s.footer)}${devs.some((d) => this._toggles(d)) ? " " + esc(s.tapHint) + "." : ""}</div>` : ""}
     </ha-card>`;
     this.shadowRoot.querySelectorAll("[data-info]").forEach((el) => this._actions(el));
   }
@@ -409,6 +423,7 @@ const STYLE = `
   .use { position: relative; height: 6px; border-radius: 3px; margin-top: 4px; background: color-mix(in srgb, currentColor 14%, transparent); overflow: hidden; }
   .use i { position: absolute; top: 0; bottom: 0; background: var(--c); border-radius: 2px; min-width: 2px; }
   .tile.full .use i { background: var(--t); }
+  ha-card > .section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
   .section { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.18)); }
   .sec-title { font-size: .72rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--secondary-text-color); }
   .sec-sub { font-size: .72rem; color: var(--secondary-text-color); margin-top: 2px; }

@@ -11,7 +11,7 @@ much it draws, and how much energy each appliance used in the last days.
 - In every tile: state, power, how long it has been running, energy used today, meter reading, the power curve of the
   last 24 hours with its maximum, and a strip with the times it was in use.
 - Tap a tile to switch its plug on or off (never for always-on appliances such as the fridge; or never at all, with
-  `tap: details`); hold it for the details.
+  `tap: details`); hold it for the details of the plug (or of the power or energy sensor, if there is no plug).
 - Below, a table with the energy of every appliance, day by day, for the last 7 days: the darker the box, the more
   energy.
 - No animations, works at phone width, follows your light or dark theme. English and Italian.
@@ -93,6 +93,8 @@ devices:
 | `days` | `7` | Days in the table. |
 | `show_tiles` | `true` | Show the tiles. |
 | `show_table` | `true` | Show the table of the last days. |
+| `show_banner` | `true` | Show the title line and the banner on top. `false` leaves them out (handy for a table-only card). An empty `title` leaves out just the title. |
+| `show_meter` | `true` | `false` hides the meter reading in every tile. |
 | `language` | Home Assistant language | `en` or `it`; other languages fall back to English. |
 
 ### Device options
@@ -107,6 +109,11 @@ devices:
 | `threshold` | card `threshold` | Watts above which this appliance is in use. |
 | `always_on` | `false` | For things that should always draw power (fridge, network): shown as *On*, and in full colour as *No power* when the power drops to 1 W or below (or to this device's `threshold`, if set). A tap never switches their plug. |
 | `icon` | the switch icon, or guessed from the name | Any `mdi:` icon. |
+| `portable` | `false` | For appliances whose plug is inside them (a cordless vacuum): when the plug or the power sensor is unavailable the tile shows a dimmed grey *Unplugged* instead of a red *Unavailable*, and it is never listed under *to check*. Once plugged in, it works like the others. |
+| `phase` | none | A `sensor` with the running phase (washing, rinsing, spinning...). While it is not at rest, it is shown in the tile and in the banner: *Running: Washing machine (washing)*. |
+| `phase_idle` | `inattiva`, `idle`, `off`, `unknown` | State, or list of states, that mean "at rest" for `phase` (compared ignoring case). |
+| `meter` | the `energy` sensor | Sensor of the total meter reading, when it differs from `energy` (for example `energy` is a daily sensor). `""` hides the meter reading of this appliance. |
+| `note` | none | Free text added at the end of the energy line of the tile. |
 
 ### What the colours mean
 
@@ -114,7 +121,8 @@ devices:
 |---|---|
 | Full amber, *In use* | Running now. |
 | Full amber, *No power* | An `always_on` appliance that dropped to almost zero (1 W or less). |
-| Grey, *Unavailable* | The plug or the sensor is not responding. |
+| Red, *Unavailable* | The plug or the sensor is not responding. |
+| Dimmed grey, *Unplugged* | A `portable` appliance without power: normal, not an alarm. |
 | Dimmed grey, *Off* | Plug switched off: that is your choice, not an alarm. |
 | Dimmed green, *Idle* / *On* | Fine. |
 
