@@ -5,7 +5,7 @@
  * Devices come from the "Individual devices" of the Home Assistant Energy dashboard, or from the card configuration.
  * https://github.com/AldebaranPrimo/appliance-energy-card — MIT licence.
  */
-const VERSION = "1.1.1";
+const VERSION = "1.2.0";
 
 const STRINGS = {
   en: {
@@ -141,7 +141,7 @@ class ApplianceEnergyCard extends HTMLElement {
     if (config.always_on !== undefined && !Array.isArray(config.always_on)) throw new Error("always_on must be a list of energy sensors or names");
     if (config.tap !== undefined && !["toggle", "details"].includes(config.tap)) throw new Error("tap must be toggle or details");
     checkLanguage(config.language);
-    const merged = { days: 7, threshold: 10, show_table: true, show_tiles: true, show_banner: true, show_meter: true, house_levels: [800, 2000], tap: "toggle", always_on: [], ...config };
+    const merged = { days: 7, threshold: 10, show_table: true, show_tiles: true, show_banner: true, show_meter: true, show_footer: true, house_levels: [800, 2000], tap: "toggle", always_on: [], ...config };
     if (!Number.isInteger(merged.days) || merged.days < 1 || merged.days > 31) throw new Error("days must be a whole number from 1 to 31");
     if (!Number.isFinite(merged.threshold)) throw new Error("threshold must be a number");
     const lv = merged.house_levels;
@@ -350,7 +350,7 @@ class ApplianceEnergyCard extends HTMLElement {
       ${banner}
       ${c.show_tiles && devs.length ? `<div class="tiles">${rows.map(tile).join("")}</div>` : ""}
       ${c.show_table && devs.some((d) => d.energy) ? this._table() : ""}
-      ${c.show_tiles && devs.length ? `<div class="foot">${esc(s.footer(c.show_meter !== false))}${devs.some((d) => this._toggles(d)) ? " " + esc(s.tapHint) + "." : ""}</div>` : ""}
+      ${c.show_tiles && c.show_footer && devs.length ? `<div class="foot">${esc(s.footer(c.show_meter !== false))}${devs.some((d) => this._toggles(d)) ? " " + esc(s.tapHint) + "." : ""}</div>` : ""}
     </ha-card>`;
     this.shadowRoot.querySelectorAll("[data-info]").forEach((el) => this._actions(el));
   }

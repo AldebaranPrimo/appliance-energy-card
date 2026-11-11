@@ -94,6 +94,7 @@ devices:
 | `show_tiles` | `true` | Show the tiles. |
 | `show_table` | `true` | Show the table of the last days. |
 | `show_banner` | `true` | Show the title line and the banner on top. `false` leaves them out (handy for a table-only card). An empty `title` leaves out just the title. |
+| `show_footer` | `true` | `false` hides the line of explanation under the tiles. |
 | `show_meter` | `true` | `false` hides the meter reading in every tile. |
 | `language` | Home Assistant language | `en` or `it`; other languages fall back to English. |
 
